@@ -149,10 +149,15 @@ export function JournalEntryFormPage() {
   const totals = useMemo(() => {
     const debit = lines.reduce((sum, line) => sum + Number(line.debit || 0), 0);
     const credit = lines.reduce((sum, line) => sum + Number(line.credit || 0), 0);
+    // An entry with nothing on it is not "balanced", it is simply empty.
+    const hasAmounts = lines.some(
+      (line) => line.accountId && (Number(line.debit) > 0 || Number(line.credit) > 0),
+    );
     return {
       debit: Math.round(debit * 100) / 100,
       credit: Math.round(credit * 100) / 100,
-      balanced: Math.round(debit * 100) === Math.round(credit * 100),
+      hasAmounts,
+      balanced: hasAmounts && Math.round(debit * 100) === Math.round(credit * 100),
     };
   }, [lines]);
 
@@ -253,7 +258,7 @@ export function JournalEntryFormPage() {
         ) : null
       }
       banner={
-        !readOnly && !totals.balanced ? (
+        !readOnly && totals.hasAmounts && !totals.balanced ? (
           <WarningBanner>
             Total debit {formatMoney(totals.debit)} does not equal total credit{' '}
             {formatMoney(totals.credit)}. Balance the entry before posting.
