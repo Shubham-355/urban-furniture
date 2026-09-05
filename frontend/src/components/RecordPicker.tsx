@@ -136,7 +136,7 @@ export function RecordPicker<T extends Option>({
         type="button"
         disabled={disabled}
         onClick={() => setOpen((current) => !current)}
-        className={`input flex items-center justify-between text-left ${error ? 'input-error' : ''} ${
+        className={`input flex w-full items-center justify-between text-left ${error ? 'input-error' : ''} ${
           disabled ? 'cursor-not-allowed bg-slate-100' : ''
         }`}
       >
@@ -172,7 +172,7 @@ export function RecordPicker<T extends Option>({
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Type to search..."
-              className="input py-1.5 text-sm"
+              className="input w-full py-1.5 text-sm"
             />
           </div>
           <ul className="max-h-56 overflow-auto py-1 text-sm">

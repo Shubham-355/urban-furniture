@@ -119,7 +119,7 @@ export function TextInput({
   className = '',
   ...props
 }: InputHTMLAttributes<HTMLInputElement> & { error?: boolean }) {
-  return <input {...props} className={`input ${error ? 'input-error' : ''} ${className}`} />;
+  return <input {...props} className={`input w-full ${error ? 'input-error' : ''} ${className}`} />;
 }
 
 export function SelectInput({
@@ -129,7 +129,7 @@ export function SelectInput({
   ...props
 }: SelectHTMLAttributes<HTMLSelectElement> & { error?: boolean }) {
   return (
-    <select {...props} className={`input ${error ? 'input-error' : ''} ${className}`}>
+    <select {...props} className={`input w-full ${error ? 'input-error' : ''} ${className}`}>
       {children}
     </select>
   );
@@ -180,7 +180,7 @@ export function SearchInput({
         value={local}
         onChange={(event) => setLocal(event.target.value)}
         placeholder={placeholder}
-        className="input pl-8"
+        className="input w-full pl-8"
       />
     </div>
   );

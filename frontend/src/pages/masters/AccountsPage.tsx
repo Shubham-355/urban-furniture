@@ -200,7 +200,7 @@ export function AccountFormPage() {
 
         <Field label="Type" error={errors.type}>
           <select
-            className={`input ${errors.type ? 'input-error' : ''}`}
+            className={`input w-full ${errors.type ? 'input-error' : ''}`}
             value={form.type}
             onChange={(event) => setForm({ ...form, type: event.target.value as AccountType })}
           >
