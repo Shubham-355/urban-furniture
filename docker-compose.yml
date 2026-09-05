@@ -1,0 +1,21 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: urbanfurniture-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: urban
+      POSTGRES_PASSWORD: urban
+      POSTGRES_DB: urbanfurniture
+    ports:
+      - "5432:5432"
+    volumes:
+      - urbanfurniture_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U urban -d urbanfurniture"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  urbanfurniture_pgdata:
