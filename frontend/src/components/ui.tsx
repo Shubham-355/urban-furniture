@@ -165,7 +165,7 @@ export function SearchInput({
   return (
     <div className="relative">
       <svg
-        className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-slate-400"
+        className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
         viewBox="0 0 20 20"
         fill="currentColor"
         aria-hidden="true"
@@ -180,7 +180,7 @@ export function SearchInput({
         value={local}
         onChange={(event) => setLocal(event.target.value)}
         placeholder={placeholder}
-        className="input w-full pl-8"
+        className="input w-full pl-9"
       />
     </div>
   );
