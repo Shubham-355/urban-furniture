@@ -1,0 +1,480 @@
+// Urban Furniture Accounting System - data model
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------- enums
+
+enum Role {
+  ADMIN
+  ACCOUNTANT
+  CONTACT
+}
+
+enum ContactType {
+  CUSTOMER
+  VENDOR
+  BOTH
+}
+
+enum ProductType {
+  GOODS
+  SERVICE
+  COMBO
+}
+
+enum AccountType {
+  ASSET
+  LIABILITY
+  BANK
+  CAPITAL
+  CASH
+  INCOME
+  EXPENSE
+  OTHER_EXPENSE
+}
+
+enum JournalType {
+  SALES
+  PURCHASE
+  BANK
+  CASH
+}
+
+enum EntryStatus {
+  DRAFT
+  POSTED
+  CANCELLED
+}
+
+enum AnalyticType {
+  INCOME
+  EXPENSE
+}
+
+enum BudgetStatus {
+  DRAFT
+  CONFIRMED
+  REVISED
+  CANCELLED
+}
+
+enum DocStatus {
+  DRAFT
+  CONFIRMED
+  BILLED
+  INVOICED
+  PAID
+  CANCELLED
+}
+
+enum PaymentType {
+  SEND
+  RECEIVE
+}
+
+enum PaymentVia {
+  BANK
+  CASH
+}
+
+// ---------------------------------------------------------------- auth
+
+model User {
+  id           Int      @id @default(autoincrement())
+  name         String
+  loginId      String   @unique
+  email        String   @unique
+  passwordHash String
+  role         Role     @default(ACCOUNTANT)
+  isArchived   Boolean  @default(false)
+  contactId    Int?     @unique
+  contact      Contact? @relation(fields: [contactId], references: [id])
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  resets PasswordReset[]
+}
+
+model PasswordReset {
+  id        Int       @id @default(autoincrement())
+  userId    Int
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+}
+
+// ---------------------------------------------------------------- masters
+
+model Contact {
+  id         Int         @id @default(autoincrement())
+  name       String
+  type       ContactType @default(CUSTOMER)
+  email      String      @unique
+  mobile     String?
+  street     String?
+  city       String?
+  state      String?
+  country    String?
+  pincode    String?
+  imageUrl   String?
+  isArchived Boolean     @default(false)
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+
+  portalUser       User?
+  budgets          Budget[]
+  purchaseOrders   PurchaseOrder[]
+  vendorBills      VendorBill[]
+  salesOrders      SalesOrder[]
+  customerInvoices CustomerInvoice[]
+  payments         Payment[]
+  journalEntries   JournalEntry[]
+  journalItems     JournalItem[]
+}
+
+model ProductCategory {
+  id         Int       @id @default(autoincrement())
+  name       String    @unique
+  isArchived Boolean   @default(false)
+  createdAt  DateTime  @default(now())
+  products   Product[]
+}
+
+model Product {
+  id         Int              @id @default(autoincrement())
+  name       String
+  type       ProductType      @default(GOODS)
+  categoryId Int?
+  category   ProductCategory? @relation(fields: [categoryId], references: [id])
+  salesPrice Decimal          @default(0) @db.Decimal(14, 2)
+  cost       Decimal          @default(0) @db.Decimal(14, 2)
+  imageUrl   String?
+  isArchived Boolean          @default(false)
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+
+  purchaseOrderLines   PurchaseOrderLine[]
+  vendorBillLines      VendorBillLine[]
+  salesOrderLines      SalesOrderLine[]
+  customerInvoiceLines CustomerInvoiceLine[]
+}
+
+model Account {
+  id         Int         @id @default(autoincrement())
+  name       String      @unique
+  type       AccountType
+  isArchived Boolean     @default(false)
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+
+  journals             Journal[]
+  journalItems         JournalItem[]
+  vendorBillLines      VendorBillLine[]
+  customerInvoiceLines CustomerInvoiceLine[]
+}
+
+model Journal {
+  id               Int         @id @default(autoincrement())
+  name             String      @unique
+  type             JournalType
+  defaultAccountId Int?
+  defaultAccount   Account?    @relation(fields: [defaultAccountId], references: [id])
+  isArchived       Boolean     @default(false)
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  entries JournalEntry[]
+}
+
+model AnalyticAccount {
+  id         Int          @id @default(autoincrement())
+  name       String       @unique
+  type       AnalyticType
+  isArchived Boolean      @default(false)
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  budgetLines          BudgetLine[]
+  purchaseOrderLines   PurchaseOrderLine[]
+  vendorBillLines      VendorBillLine[]
+  salesOrderLines      SalesOrderLine[]
+  customerInvoiceLines CustomerInvoiceLine[]
+}
+
+// ---------------------------------------------------------------- accounting core
+
+model JournalEntry {
+  id         Int         @id @default(autoincrement())
+  number     String      @unique
+  date       DateTime
+  journalId  Int
+  journal    Journal     @relation(fields: [journalId], references: [id])
+  reference  String?
+  partnerId  Int?
+  partner    Contact?    @relation(fields: [partnerId], references: [id])
+  status     EntryStatus @default(DRAFT)
+  sourceType String?
+  sourceId   Int?
+  isArchived Boolean     @default(false)
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+
+  items           JournalItem[]
+  payment         Payment?
+  vendorBill      VendorBill?      @relation("VendorBillEntry")
+  customerInvoice CustomerInvoice? @relation("CustomerInvoiceEntry")
+
+  @@index([sourceType, sourceId])
+  @@index([date])
+}
+
+model JournalItem {
+  id        Int          @id @default(autoincrement())
+  entryId   Int
+  entry     JournalEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  accountId Int
+  account   Account      @relation(fields: [accountId], references: [id])
+  partnerId Int?
+  partner   Contact?     @relation(fields: [partnerId], references: [id])
+  label     String?
+  debit     Decimal      @default(0) @db.Decimal(14, 2)
+  credit    Decimal      @default(0) @db.Decimal(14, 2)
+
+  @@index([entryId])
+  @@index([accountId])
+}
+
+// ---------------------------------------------------------------- budgets
+
+model Budget {
+  id            Int          @id @default(autoincrement())
+  name          String
+  startDate     DateTime
+  endDate       DateTime
+  responsibleId Int?
+  responsible   Contact?     @relation(fields: [responsibleId], references: [id])
+  status        BudgetStatus @default(DRAFT)
+  revisionOfId  Int?         @unique
+  revisionOf    Budget?      @relation("BudgetRevision", fields: [revisionOfId], references: [id])
+  revisedWith   Budget?      @relation("BudgetRevision")
+  isArchived    Boolean      @default(false)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  lines BudgetLine[]
+}
+
+model BudgetLine {
+  id              Int             @id @default(autoincrement())
+  budgetId        Int
+  budget          Budget          @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+  analyticId      Int
+  analytic        AnalyticAccount @relation(fields: [analyticId], references: [id])
+  committedAmount Decimal         @default(0) @db.Decimal(14, 2)
+
+  @@index([budgetId])
+}
+
+// ---------------------------------------------------------------- purchase
+
+model PurchaseOrder {
+  id         Int       @id @default(autoincrement())
+  number     String    @unique
+  vendorId   Int
+  vendor     Contact   @relation(fields: [vendorId], references: [id])
+  date       DateTime
+  status     DocStatus @default(DRAFT)
+  total      Decimal   @default(0) @db.Decimal(14, 2)
+  isArchived Boolean   @default(false)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  lines PurchaseOrderLine[]
+  bills VendorBill[]
+}
+
+model PurchaseOrderLine {
+  id         Int              @id @default(autoincrement())
+  orderId    Int
+  order      PurchaseOrder    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  sequence   Int              @default(1)
+  productId  Int
+  product    Product          @relation(fields: [productId], references: [id])
+  analyticId Int?
+  analytic   AnalyticAccount? @relation(fields: [analyticId], references: [id])
+  quantity   Decimal          @default(1) @db.Decimal(14, 2)
+  unitPrice  Decimal          @default(0) @db.Decimal(14, 2)
+  total      Decimal          @default(0) @db.Decimal(14, 2)
+
+  @@index([orderId])
+}
+
+model VendorBill {
+  id              Int            @id @default(autoincrement())
+  number          String         @unique
+  vendorId        Int
+  vendor          Contact        @relation(fields: [vendorId], references: [id])
+  reference       String?
+  billDate        DateTime
+  dueDate         DateTime?
+  status          DocStatus      @default(DRAFT)
+  total           Decimal        @default(0) @db.Decimal(14, 2)
+  paidCash        Decimal        @default(0) @db.Decimal(14, 2)
+  paidBank        Decimal        @default(0) @db.Decimal(14, 2)
+  purchaseOrderId Int?
+  purchaseOrder   PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id])
+  journalEntryId  Int?           @unique
+  journalEntry    JournalEntry?  @relation("VendorBillEntry", fields: [journalEntryId], references: [id])
+  isArchived      Boolean        @default(false)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  lines    VendorBillLine[]
+  payments Payment[]
+}
+
+model VendorBillLine {
+  id         Int              @id @default(autoincrement())
+  billId     Int
+  bill       VendorBill       @relation(fields: [billId], references: [id], onDelete: Cascade)
+  sequence   Int              @default(1)
+  productId  Int
+  product    Product          @relation(fields: [productId], references: [id])
+  accountId  Int
+  account    Account          @relation(fields: [accountId], references: [id])
+  analyticId Int?
+  analytic   AnalyticAccount? @relation(fields: [analyticId], references: [id])
+  quantity   Decimal          @default(1) @db.Decimal(14, 2)
+  unitPrice  Decimal          @default(0) @db.Decimal(14, 2)
+  total      Decimal          @default(0) @db.Decimal(14, 2)
+
+  @@index([billId])
+  @@index([analyticId])
+}
+
+// ---------------------------------------------------------------- sales
+
+model SalesOrder {
+  id         Int       @id @default(autoincrement())
+  number     String    @unique
+  customerId Int
+  customer   Contact   @relation(fields: [customerId], references: [id])
+  date       DateTime
+  status     DocStatus @default(DRAFT)
+  subtotal   Decimal   @default(0) @db.Decimal(14, 2)
+  taxTotal   Decimal   @default(0) @db.Decimal(14, 2)
+  total      Decimal   @default(0) @db.Decimal(14, 2)
+  isArchived Boolean   @default(false)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  lines    SalesOrderLine[]
+  invoices CustomerInvoice[]
+}
+
+model SalesOrderLine {
+  id         Int              @id @default(autoincrement())
+  orderId    Int
+  order      SalesOrder       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  sequence   Int              @default(1)
+  productId  Int
+  product    Product          @relation(fields: [productId], references: [id])
+  analyticId Int?
+  analytic   AnalyticAccount? @relation(fields: [analyticId], references: [id])
+  quantity   Decimal          @default(1) @db.Decimal(14, 2)
+  unitPrice  Decimal          @default(0) @db.Decimal(14, 2)
+  taxPercent Decimal          @default(0) @db.Decimal(6, 2)
+  taxAmount  Decimal          @default(0) @db.Decimal(14, 2)
+  total      Decimal          @default(0) @db.Decimal(14, 2)
+
+  @@index([orderId])
+}
+
+model CustomerInvoice {
+  id             Int           @id @default(autoincrement())
+  number         String        @unique
+  customerId     Int
+  customer       Contact       @relation(fields: [customerId], references: [id])
+  reference      String?
+  invoiceDate    DateTime
+  dueDate        DateTime?
+  status         DocStatus     @default(DRAFT)
+  subtotal       Decimal       @default(0) @db.Decimal(14, 2)
+  taxTotal       Decimal       @default(0) @db.Decimal(14, 2)
+  total          Decimal       @default(0) @db.Decimal(14, 2)
+  paidCash       Decimal       @default(0) @db.Decimal(14, 2)
+  paidBank       Decimal       @default(0) @db.Decimal(14, 2)
+  salesOrderId   Int?
+  salesOrder     SalesOrder?   @relation(fields: [salesOrderId], references: [id])
+  journalEntryId Int?          @unique
+  journalEntry   JournalEntry? @relation("CustomerInvoiceEntry", fields: [journalEntryId], references: [id])
+  isArchived     Boolean       @default(false)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  lines    CustomerInvoiceLine[]
+  payments Payment[]
+}
+
+model CustomerInvoiceLine {
+  id         Int              @id @default(autoincrement())
+  invoiceId  Int
+  invoice    CustomerInvoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  sequence   Int              @default(1)
+  productId  Int
+  product    Product          @relation(fields: [productId], references: [id])
+  accountId  Int
+  account    Account          @relation(fields: [accountId], references: [id])
+  analyticId Int?
+  analytic   AnalyticAccount? @relation(fields: [analyticId], references: [id])
+  quantity   Decimal          @default(1) @db.Decimal(14, 2)
+  unitPrice  Decimal          @default(0) @db.Decimal(14, 2)
+  taxPercent Decimal          @default(0) @db.Decimal(6, 2)
+  taxAmount  Decimal          @default(0) @db.Decimal(14, 2)
+  total      Decimal          @default(0) @db.Decimal(14, 2)
+
+  @@index([invoiceId])
+  @@index([analyticId])
+}
+
+// ---------------------------------------------------------------- payments
+
+model Payment {
+  id             Int              @id @default(autoincrement())
+  number         String           @unique
+  type           PaymentType
+  partnerId      Int
+  partner        Contact          @relation(fields: [partnerId], references: [id])
+  amount         Decimal          @default(0) @db.Decimal(14, 2)
+  date           DateTime
+  via            PaymentVia       @default(BANK)
+  note           String?
+  billId         Int?
+  bill           VendorBill?      @relation(fields: [billId], references: [id])
+  invoiceId      Int?
+  invoice        CustomerInvoice? @relation(fields: [invoiceId], references: [id])
+  journalEntryId Int?             @unique
+  journalEntry   JournalEntry?    @relation(fields: [journalEntryId], references: [id])
+  isArchived     Boolean          @default(false)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+}
+
+// ---------------------------------------------------------------- sequences
+
+model Sequence {
+  id   Int    @id @default(autoincrement())
+  key  String
+  year Int
+  next Int    @default(1)
+
+  @@unique([key, year])
+}
