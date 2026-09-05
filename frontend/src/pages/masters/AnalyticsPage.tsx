@@ -20,7 +20,8 @@ import {
 export function AnalyticsPage() {
   const navigate = useNavigate();
   const list = useList<AnalyticAccount>('/analytics', { pageSize: 20 });
-  const [view, setView] = useState<'list' | 'kanban'>('list');
+  // Cards read better than rows for analytic accounts, so kanban is the default.
+  const [view, setView] = useState<'list' | 'kanban'>('kanban');
 
   return (
     <ListShell

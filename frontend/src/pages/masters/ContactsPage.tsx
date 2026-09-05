@@ -9,7 +9,8 @@ import { Avatar, EmptyState, Spinner, StatusBadge } from '../../components/ui';
 export function ContactsPage() {
   const navigate = useNavigate();
   const list = useList<Contact>('/contacts', { pageSize: 20 });
-  const [view, setView] = useState<'list' | 'kanban'>('list');
+  // Cards read better than rows for contacts, so kanban is the default.
+  const [view, setView] = useState<'list' | 'kanban'>('kanban');
   const [selected, setSelected] = useState<number[]>([]);
 
   const toggle = (id: number) =>

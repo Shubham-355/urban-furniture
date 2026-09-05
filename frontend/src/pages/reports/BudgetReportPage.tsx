@@ -57,7 +57,8 @@ export function BudgetReportPage() {
   const toast = useToast();
   const [rows, setRows] = useState<BudgetReportRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState<'list' | 'kanban'>('list');
+  // The budget report reads best as cards, so kanban is the default here.
+  const [view, setView] = useState<'list' | 'kanban'>('kanban');
   const [busy, setBusy] = useState<'print' | 'download' | null>(null);
 
   useEffect(() => {

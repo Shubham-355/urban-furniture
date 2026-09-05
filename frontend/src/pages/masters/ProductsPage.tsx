@@ -9,7 +9,8 @@ import { Avatar, EmptyState, Spinner } from '../../components/ui';
 export function ProductsPage() {
   const navigate = useNavigate();
   const list = useList<Product>('/products', { pageSize: 20 });
-  const [view, setView] = useState<'list' | 'kanban'>('list');
+  // Cards read better than rows for products, so kanban is the default.
+  const [view, setView] = useState<'list' | 'kanban'>('kanban');
   const [selected, setSelected] = useState<number[]>([]);
 
   const toggle = (id: number) =>
