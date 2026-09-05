@@ -46,7 +46,9 @@ export function sum(values: Numeric[]): number {
 export function multiply(quantity: Numeric, unitPrice: Numeric): number {
   const q = toPaise(quantity); // quantity also carries 2 dp
   const p = toPaise(unitPrice);
-  return fromPaise(Math.round((q * p) / 10000));
+  // q and p are both hundredths, so their product is in 1/10000 of a rupee;
+  // divide by 100 to land back on paise.
+  return fromPaise(Math.round((q * p) / 100));
 }
 
 /** Apply a percentage to an amount, rounded to 2 dp. */
