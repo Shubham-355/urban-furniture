@@ -33,6 +33,7 @@ import { PaymentFormPage, PaymentsPage } from './pages/payments/PaymentsPage';
 import { ProfitAndLossPage } from './pages/reports/ProfitAndLossPage';
 import { BalanceSheetPage } from './pages/reports/BalanceSheetPage';
 import { BudgetAnalyticReportPage, BudgetReportPage } from './pages/reports/BudgetReportPage';
+import { StockReportPage } from './pages/reports/StockReportPage';
 import { PortalPage } from './pages/portal/PortalPage';
 import { CreateUserPage, UsersPage } from './pages/users/UsersPage';
 
@@ -162,6 +163,7 @@ export default function App() {
               <Route path="/report/balance-sheet" element={<BalanceSheetPage />} />
               <Route path="/report/profit-and-loss" element={<ProfitAndLossPage />} />
               <Route path="/report/budget" element={<BudgetReportPage />} />
+              <Route path="/report/stock" element={<StockReportPage />} />
               <Route
                 path="/report/budget-analytic/:analyticId"
                 element={<BudgetAnalyticReportPage />}

@@ -50,6 +50,7 @@ const MENUS: Menu[] = [
       { label: 'Balancesheet', to: '/report/balance-sheet' },
       { label: 'Profit and Loss', to: '/report/profit-and-loss' },
       { label: 'Budget Report', to: '/report/budget' },
+      { label: 'Stock Report', to: '/report/stock' },
     ],
   },
 ];

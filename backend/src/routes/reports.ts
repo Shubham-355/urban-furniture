@@ -10,11 +10,12 @@ import {
   type PostedItem,
 } from '../domain/reports';
 import { round2, sum } from '../lib/money';
+import { buildStockReport, type StockMovement } from '../domain/stock';
 import { amountDue } from '../domain/totals';
 import { footerNote, header, keyValues, renderPdf, table, totalsBlock } from '../lib/pdf';
 import { asyncHandler } from '../middleware/error';
 import { requireAuth, requireBackOffice } from '../middleware/auth';
-import { computeBudgetAchievement } from '../services/budgets';
+import { ACHIEVING_STATUSES, computeBudgetAchievement } from '../services/budgets';
 
 export const reportsRouter = Router();
 
@@ -280,6 +281,141 @@ reportsRouter.get(
 
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', 'attachment; filename="budget-report.pdf"');
+    res.send(buffer);
+  }),
+);
+
+// ----------------------------------------------------------------- stock report
+
+/**
+ * Stock is not kept in a table of its own: it is derived from the very same
+ * confirmed bills and invoices that move the ledger, so the two can never
+ * disagree. Goods arrive on a vendor bill line and leave on a customer
+ * invoice line.
+ */
+async function stockReportFor(query: unknown) {
+  const period = resolvePeriod(query);
+
+  const [products, billLines, invoiceLines] = await Promise.all([
+    prisma.product.findMany({
+      where: { isArchived: false },
+      include: { category: { select: { name: true } } },
+    }),
+    prisma.vendorBillLine.findMany({
+      where: {
+        bill: {
+          isArchived: false,
+          status: { in: [...ACHIEVING_STATUSES] },
+          billDate: { lte: period.to },
+        },
+      },
+      include: { bill: { select: { billDate: true } } },
+    }),
+    prisma.customerInvoiceLine.findMany({
+      where: {
+        invoice: {
+          isArchived: false,
+          status: { in: [...ACHIEVING_STATUSES] },
+          invoiceDate: { lte: period.to },
+        },
+      },
+      include: { invoice: { select: { invoiceDate: true } } },
+    }),
+  ]);
+
+  const movements: StockMovement[] = [
+    ...billLines.map((line) => ({
+      productId: line.productId,
+      direction: 'IN' as const,
+      quantity: Number(line.quantity),
+      value: Number(line.total),
+      opening: line.bill.billDate < period.from,
+    })),
+    ...invoiceLines.map((line) => ({
+      productId: line.productId,
+      direction: 'OUT' as const,
+      quantity: Number(line.quantity),
+      // The untaxed amount, so what left the shelf is valued the same way it
+      // arrived on it.
+      value: round2(Number(line.total) - Number(line.taxAmount)),
+      opening: line.invoice.invoiceDate < period.from,
+    })),
+  ];
+
+  const report = buildStockReport(
+    products.map((product) => ({
+      productId: product.id,
+      productName: product.name,
+      productType: product.type,
+      categoryName: product.category?.name ?? null,
+      cost: Number(product.cost),
+    })),
+    movements,
+  );
+
+  return { period, report };
+}
+
+reportsRouter.get(
+  '/stock',
+  asyncHandler(async (req, res) => {
+    const { period, report } = await stockReportFor(req.query);
+    res.json(serialize({ period, ...report }));
+  }),
+);
+
+reportsRouter.get(
+  '/stock/pdf',
+  asyncHandler(async (req, res) => {
+    const { period, report } = await stockReportFor(req.query);
+
+    const buffer = await renderPdf((doc) => {
+      header(doc, 'Stock Report', `${formatDate(period.from)} to ${formatDate(period.to)}`);
+      table(
+        doc,
+        [
+          { label: 'Product', width: 150 },
+          { label: 'Category', width: 85 },
+          { label: 'Opening', width: 55, align: 'right' },
+          { label: 'In', width: 45, align: 'right' },
+          { label: 'Out', width: 45, align: 'right' },
+          { label: 'Closing', width: 55, align: 'right' },
+          { label: 'Stock Value', width: 80, money: true },
+        ],
+        [
+          ...report.rows.map((row) => [
+            row.productName,
+            row.categoryName ?? '-',
+            row.openingQty,
+            row.inQty,
+            row.outQty,
+            row.closingQty,
+            row.stockValue,
+          ]),
+          [
+            'Total',
+            '',
+            report.totals.openingQty,
+            report.totals.inQty,
+            report.totals.outQty,
+            report.totals.closingQty,
+            report.totals.stockValue,
+          ],
+        ],
+      );
+      totalsBlock(doc, [
+        ['Purchased in period', report.totals.inValue],
+        ['Sold in period', report.totals.outValue],
+        ['Closing stock value', report.totals.stockValue],
+      ]);
+      footerNote(
+        doc,
+        'Quantities come from confirmed vendor bills and customer invoices. Services carry no stock.',
+      );
+    });
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'attachment; filename="stock-report.pdf"');
     res.send(buffer);
   }),
 );

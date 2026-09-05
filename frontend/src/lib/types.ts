@@ -368,6 +368,35 @@ export interface BalanceSheet {
   difference: number;
 }
 
+export interface StockRow {
+  productId: number;
+  productName: string;
+  productType: ProductType;
+  categoryName: string | null;
+  openingQty: number;
+  inQty: number;
+  inValue: number;
+  outQty: number;
+  outValue: number;
+  closingQty: number;
+  unitCost: number;
+  stockValue: number;
+}
+
+export interface StockReport {
+  period: { from: string; to: string };
+  rows: StockRow[];
+  totals: {
+    openingQty: number;
+    inQty: number;
+    inValue: number;
+    outQty: number;
+    outValue: number;
+    closingQty: number;
+    stockValue: number;
+  };
+}
+
 export interface BudgetReportRow {
   id: number;
   name: string;

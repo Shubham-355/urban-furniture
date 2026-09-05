@@ -18,8 +18,8 @@ posted entries — nothing in the reports is stored twice or maintained by hand.
 | Frontend | React + Vite + TypeScript, React Router, Axios, Tailwind CSS |
 | Auth | JWT (httpOnly cookie **and** `Authorization: Bearer`), bcrypt hashes |
 | Validation | Zod on the server, mirrored on the client |
-| Charts | Recharts (pie chart on the Budget Report) |
-| PDF | `pdfkit`, rendered server-side for invoices, bills and all three reports |
+| Charts | Recharts (dashboard income/expense bars, pie chart on the Budget Report) |
+| PDF | `pdfkit`, rendered server-side for invoices, bills and all four reports |
 | Email | Nodemailer over SMTP from `.env` |
 | Money | `Decimal(14,2)` in Postgres; integer paise arithmetic in code — never floating point |
 
@@ -178,7 +178,7 @@ accounts — the pickers filter accordingly and the server rejects a mismatch.
 
 ## Reports
 
-All three take a period (defaulting to the current 1 April – 31 March financial year), print to
+All four take a period (defaulting to the current 1 April – 31 March financial year), print to
 a server-rendered PDF, and read only **posted** journal entries.
 
 - **Profit and Loss** — Income (credits − debits of Income accounts), Purchase Expense and Other
@@ -187,6 +187,11 @@ a server-rendered PDF, and read only **posted** journal entries.
   includes retained earnings. Total Assets always equals Total Liabilities and Capital; the API
   asserts this and the page shows a warning banner if it ever differs.
 - **Budget Report** — list ⇄ kanban, with an achieved-vs-balance pie per budget.
+- **Stock Report** — quantity and value on hand per product: Opening + In − Out = Closing, valued
+  at the product's purchase cost. There is no separate inventory ledger; quantities come from the
+  same confirmed vendor bills (in) and customer invoices (out) that move the accounts, so stock
+  can never drift away from the books. Services carry no stock and are left out, and a product
+  that goes negative is called out on the page rather than hidden.
 
 ---
 
@@ -196,9 +201,10 @@ a server-rendered PDF, and read only **posted** journal entries.
 npm test
 ```
 
-37 unit tests over the pure accounting core: journal generation for bills, invoices and
+48 unit tests over the pure accounting core: journal generation for bills, invoices and
 payments, the debit/credit balance check, paise-exact line and document totals, INR formatting,
-budget achievement (period and type filtering, percentages, over-achievement), the P&L worked
+budget achievement (period and type filtering, percentages, over-achievement), stock movement
+(opening quantities, services excluded, per-row reconciliation, valuation), the P&L worked
 example from the spec, and the mandatory Balance Sheet equality test — asserted on the spec
 example, across a full purchase-and-sales cycle, and on an empty ledger.
 
@@ -242,8 +248,9 @@ treated as unset, so a blank line in one file can never mask a real value in the
 3. **A sale** — Sales ▸ Sales Order ▸ New: Nimesh Pathak, Office Chair × 5 → **Confirm** →
    **Create Invoice** → **Confirm** (Dr Debtors / Cr Sales Income) → **Pay** via Cash
    (Dr Cash / Cr Debtors).
-4. **Reports** — Profit and Loss, Balancesheet (totals equal) and Budget Report with its pie.
-   **Print** downloads a PDF from each.
+4. **Reports** — Profit and Loss, Balancesheet (totals equal), Budget Report with its pie, and
+   Stock Report (Wooden Chair +3 in from the bill, Office Chair −5 out from the invoice).
+   **Print** opens the print dialog and **Download** saves the PDF, from each.
 5. **Portal** — sign in as `nimesh01` to see only Nimesh's own invoices with paid/unpaid status,
    download a PDF and pay an open one.
 6. **Revise a budget** — on the confirmed budget click **Revise**: a new
@@ -262,6 +269,12 @@ treated as unset, so a blank line in one file can never mask a real value in the
   one — two entries would otherwise fight over the same number.
 - **Retained earnings.** The balance sheet is cumulative to the end of the period rather than
   period-only, so Assets = Liabilities + Capital holds exactly rather than approximately.
+- **Stock is derived, not stored.** The brief asks for "financial and stock reports" but lists
+  only the three financial ones under Reporting Requirements. Rather than add an inventory
+  subsystem the spec never describes, quantities are read off the documents that already exist:
+  goods in on a confirmed vendor bill, out on a confirmed customer invoice, valued at the product
+  master's cost. Selling more than was ever billed in therefore shows as negative stock, which is
+  reported plainly instead of being clamped to zero.
 - **Budget achievement uses untaxed line amounts**, so an income budget lines up with the Sales
   Income total on the P&L instead of being inflated by tax.
 - **Achieved documents count from Confirmed onwards**, and keep counting once a document is
