@@ -291,10 +291,50 @@ export interface Payment {
   journalEntry: { id: number; number: string; status: EntryStatus } | null;
 }
 
+export interface DashboardDocumentRow {
+  kind: 'INVOICE' | 'BILL';
+  id: number;
+  number: string;
+  partner: string;
+  date: string;
+  dueDate: string | null;
+  amountDue: number;
+  overdue: boolean;
+}
+
 export interface DashboardSummary {
   purchase: { all: number; confirmed: number; draft: number };
   sales: { all: number; confirmed: number; draft: number };
   budgets: { achieved: number; budget: number; committed: number };
+  budgetProgress: {
+    id: number;
+    name: string;
+    committed: number;
+    achieved: number;
+    percent: number;
+  }[];
+  period: { from: string; to: string };
+  financials: {
+    income: number;
+    expenses: number;
+    netIncome: number;
+    bank: number;
+    cash: number;
+    liquidity: number;
+    receivable: number;
+    payable: number;
+  };
+  monthly: { label: string; income: number; expense: number }[];
+  receivables: { rows: DashboardDocumentRow[]; overdueCount: number };
+  payables: { rows: DashboardDocumentRow[]; overdueCount: number };
+  recentEntries: {
+    id: number;
+    number: string;
+    date: string;
+    journal: string;
+    partner: string | null;
+    total: number;
+  }[];
 }
 
 export interface AccountBalance {

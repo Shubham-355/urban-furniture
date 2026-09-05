@@ -11,6 +11,17 @@ export function formatMoney(value: number | string | null | undefined): string {
   return `${negative ? '-' : ''}Rs. ${grouped}.${fraction}`;
 }
 
+/** Short form for chart axes: 1,25,000 becomes "1.25L". */
+export function formatCompactINR(value: number | null | undefined): string {
+  const amount = Number(value ?? 0);
+  const sign = amount < 0 ? '-' : '';
+  const abs = Math.abs(amount);
+  if (abs >= 10000000) return `${sign}${(abs / 10000000).toFixed(abs % 10000000 === 0 ? 0 : 1)}Cr`;
+  if (abs >= 100000) return `${sign}${(abs / 100000).toFixed(abs % 100000 === 0 ? 0 : 1)}L`;
+  if (abs >= 1000) return `${sign}${(abs / 1000).toFixed(abs % 1000 === 0 ? 0 : 1)}k`;
+  return `${sign}${abs}`;
+}
+
 export function formatNumber(value: number | string | null | undefined): string {
   const amount = Number(value ?? 0);
   return Number.isInteger(amount) ? String(amount) : amount.toFixed(2);

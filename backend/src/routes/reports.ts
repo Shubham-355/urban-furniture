@@ -3,10 +3,14 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma';
 import { endOfDay, listQuerySchema, serialize, startOfDay } from '../lib/http';
 import {
+  balancesByAccount,
   buildBalanceSheet,
   buildProfitAndLoss,
+  type AccountTypeName,
   type PostedItem,
 } from '../domain/reports';
+import { round2, sum } from '../lib/money';
+import { amountDue } from '../domain/totals';
 import { footerNote, header, keyValues, renderPdf, table, totalsBlock } from '../lib/pdf';
 import { asyncHandler } from '../middleware/error';
 import { requireAuth, requireBackOffice } from '../middleware/auth';
@@ -343,26 +347,179 @@ dashboardRouter.get(
       prisma.salesOrder.count({ where: { isArchived: false } }),
       prisma.salesOrder.count({ where: { isArchived: false, status: { in: ['CONFIRMED', 'INVOICED'] } } }),
       prisma.salesOrder.count({ where: { isArchived: false, status: 'DRAFT' } }),
+      // "Total confirmed budgets": a revised budget has been superseded by its
+      // revision, and a cancelled one is not being pursued, so neither counts.
       prisma.budget.findMany({
-        where: { isArchived: false, status: { in: ['CONFIRMED', 'REVISED'] } },
+        where: { isArchived: false, status: 'CONFIRMED' },
         include: BUDGET_INCLUDE,
       }),
     ]);
 
     let achieved = 0;
     let committed = 0;
+    const budgetProgress = [];
     for (const budget of budgets) {
       const computed = await computeBudgetAchievement(budget);
       if (computed.totalCommitted > 0) committed += 1;
       if (computed.totalAchieved >= computed.totalCommitted && computed.totalCommitted > 0) {
         achieved += 1;
       }
+      budgetProgress.push({
+        id: budget.id,
+        name: budget.name,
+        committed: computed.totalCommitted,
+        achieved: computed.totalAchieved,
+        percent: computed.achievedPercent,
+      });
     }
+    budgetProgress.sort((a, b) => b.percent - a.percent);
 
-    res.json({
-      purchase: { all: purchaseAll, confirmed: purchaseConfirmed, draft: purchaseDraft },
-      sales: { all: salesAll, confirmed: salesConfirmed, draft: salesDraft },
-      budgets: { achieved, budget: budgets.length, committed },
+    // --- money on the books -------------------------------------------------
+    const year = currentFinancialYear();
+    const [periodItems, allItems] = await Promise.all([
+      postedItems(startOfDay(year.from), endOfDay(year.to)),
+      postedItems(new Date(0), endOfDay(year.to)),
+    ]);
+
+    const profitAndLoss = buildProfitAndLoss(periodItems);
+    const balances = balancesByAccount(allItems);
+    const totalOf = (types: AccountTypeName[]) =>
+      sum(balances.filter((row) => types.includes(row.accountType)).map((row) => row.balance));
+    const namedBalance = (name: string) =>
+      balances.find((row) => row.accountName === name)?.balance ?? 0;
+
+    // --- income vs expense, month by month ---------------------------------
+    const monthly = await monthlyIncomeAndExpense(year);
+
+    // --- what still needs collecting or paying ------------------------------
+    const [openInvoices, openBills] = await Promise.all([
+      prisma.customerInvoice.findMany({
+        where: { isArchived: false, status: 'CONFIRMED' },
+        include: { customer: { select: { name: true } } },
+        orderBy: [{ dueDate: 'asc' }, { invoiceDate: 'asc' }],
+      }),
+      prisma.vendorBill.findMany({
+        where: { isArchived: false, status: 'CONFIRMED' },
+        include: { vendor: { select: { name: true } } },
+        orderBy: [{ dueDate: 'asc' }, { billDate: 'asc' }],
+      }),
+    ]);
+
+    const today = endOfDay(new Date());
+    const isOverdue = (dueDate: Date | null) => Boolean(dueDate && dueDate < today);
+
+    const receivableRows = openInvoices.map((invoice) => ({
+      kind: 'INVOICE' as const,
+      id: invoice.id,
+      number: invoice.number,
+      partner: invoice.customer.name,
+      date: invoice.invoiceDate,
+      dueDate: invoice.dueDate,
+      amountDue: amountDue(invoice.total, invoice.paidCash, invoice.paidBank),
+      overdue: isOverdue(invoice.dueDate),
+    }));
+
+    const payableRows = openBills.map((bill) => ({
+      kind: 'BILL' as const,
+      id: bill.id,
+      number: bill.number,
+      partner: bill.vendor.name,
+      date: bill.billDate,
+      dueDate: bill.dueDate,
+      amountDue: amountDue(bill.total, bill.paidCash, bill.paidBank),
+      overdue: isOverdue(bill.dueDate),
+    }));
+
+    // --- the latest documents to touch the ledger ---------------------------
+    const recentEntries = await prisma.journalEntry.findMany({
+      where: { status: 'POSTED' },
+      include: {
+        journal: { select: { name: true } },
+        partner: { select: { name: true } },
+        items: { select: { debit: true } },
+      },
+      orderBy: [{ date: 'desc' }, { id: 'desc' }],
+      take: 6,
     });
+
+    res.json(
+      serialize({
+        purchase: { all: purchaseAll, confirmed: purchaseConfirmed, draft: purchaseDraft },
+        sales: { all: salesAll, confirmed: salesConfirmed, draft: salesDraft },
+        budgets: { achieved, budget: budgets.length, committed },
+        budgetProgress: budgetProgress.slice(0, 4),
+        period: year,
+        financials: {
+          income: profitAndLoss.income.total,
+          expenses: profitAndLoss.expenses.total,
+          netIncome: profitAndLoss.netIncome,
+          bank: namedBalance('Bank A/c') || totalOf(['BANK']),
+          cash: namedBalance('Cash A/c') || totalOf(['CASH']),
+          liquidity: totalOf(['BANK', 'CASH']),
+          receivable: sum(receivableRows.map((row) => row.amountDue)),
+          payable: sum(payableRows.map((row) => row.amountDue)),
+        },
+        monthly,
+        receivables: {
+          rows: receivableRows.slice(0, 5),
+          overdueCount: receivableRows.filter((row) => row.overdue).length,
+        },
+        payables: {
+          rows: payableRows.slice(0, 5),
+          overdueCount: payableRows.filter((row) => row.overdue).length,
+        },
+        recentEntries: recentEntries.map((entry) => ({
+          id: entry.id,
+          number: entry.number,
+          date: entry.date,
+          journal: entry.journal.name,
+          partner: entry.partner?.name ?? null,
+          total: sum(entry.items.map((item) => item.debit)),
+        })),
+      }),
+    );
   }),
 );
+
+/**
+ * Income and expense per month across the financial year, for the dashboard
+ * chart. Both series come off the same posted items, so they share one scale.
+ */
+async function monthlyIncomeAndExpense(period: { from: Date; to: Date }) {
+  const items = await prisma.journalItem.findMany({
+    where: {
+      entry: { status: 'POSTED', date: { gte: startOfDay(period.from), lte: endOfDay(period.to) } },
+      account: { type: { in: ['INCOME', 'EXPENSE', 'OTHER_EXPENSE'] } },
+    },
+    select: {
+      debit: true,
+      credit: true,
+      account: { select: { type: true } },
+      entry: { select: { date: true } },
+    },
+  });
+
+  const buckets = new Map<string, { label: string; income: number; expense: number }>();
+  const cursor = new Date(period.from);
+  while (cursor <= period.to) {
+    const key = `${cursor.getFullYear()}-${cursor.getMonth()}`;
+    buckets.set(key, {
+      label: cursor.toLocaleDateString('en-IN', { month: 'short' }),
+      income: 0,
+      expense: 0,
+    });
+    cursor.setMonth(cursor.getMonth() + 1);
+  }
+
+  for (const item of items) {
+    const date = item.entry.date;
+    const bucket = buckets.get(`${date.getFullYear()}-${date.getMonth()}`);
+    if (!bucket) continue;
+    const debit = Number(item.debit);
+    const credit = Number(item.credit);
+    if (item.account.type === 'INCOME') bucket.income = round2(bucket.income + credit - debit);
+    else bucket.expense = round2(bucket.expense + debit - credit);
+  }
+
+  return [...buckets.values()];
+}
