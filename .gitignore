@@ -5,3 +5,4 @@ dist/
 backend/uploads/*
 !backend/uploads/.gitkeep
 coverage/
+.env.bak

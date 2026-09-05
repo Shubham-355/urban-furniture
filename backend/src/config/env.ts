@@ -1,8 +1,36 @@
+import fs from 'fs';
 import path from 'path';
 import dotenv from 'dotenv';
 
-dotenv.config({ path: path.resolve(process.cwd(), '.env') });
-dotenv.config({ path: path.resolve(process.cwd(), '..', '.env') });
+/**
+ * Environment files, least specific first: the repo root, then the backend's
+ * own .env, then whatever the shell already exported.
+ *
+ * Two rules matter here. A key already present in the real environment always
+ * wins, so a shell or CI value is never clobbered. And a key written as an
+ * empty value - `SMTP_USER=` - is treated as "not configured" rather than as
+ * the empty string, so a blank line in one file cannot mask a real value set
+ * in the other.
+ */
+function loadEnvironment(): void {
+  const shellProvided = new Set(Object.keys(process.env));
+  const files = [
+    path.resolve(process.cwd(), '..', '.env'),
+    path.resolve(process.cwd(), '.env'),
+  ];
+
+  for (const file of files) {
+    if (!fs.existsSync(file)) continue;
+    const parsed = dotenv.parse(fs.readFileSync(file));
+    for (const [key, value] of Object.entries(parsed)) {
+      if (shellProvided.has(key)) continue;
+      if (value === '') continue;
+      process.env[key] = value;
+    }
+  }
+}
+
+loadEnvironment();
 
 function required(key: string, fallback?: string): string {
   const value = process.env[key] ?? fallback;
@@ -26,7 +54,7 @@ export const env = {
   passwordResetTtlMinutes: Number(process.env.PASSWORD_RESET_TTL_MINUTES ?? 30),
   uploadDir: process.env.UPLOAD_DIR ?? 'uploads',
   smtp: {
-    host: process.env.SMTP_HOST ?? 'smtp.ethereal.email',
+    host: process.env.SMTP_HOST ?? 'smtp.gmail.com',
     port: Number(process.env.SMTP_PORT ?? 587),
     secure: (process.env.SMTP_SECURE ?? 'false') === 'true',
     user: process.env.SMTP_USER ?? '',
