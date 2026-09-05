@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { api, downloadFile, errorMessage } from '../../lib/api';
+import { api, downloadFile, errorMessage, printPdf } from '../../lib/api';
 import type { Account, AnalyticAccount, Contact, Product, VendorBill } from '../../lib/types';
 import { formatDate, formatMoney, today, toDateInput } from '../../lib/format';
 import { useRecord } from '../../hooks/useList';
@@ -167,6 +167,15 @@ export function VendorBillFormPage() {
   const print = async () => {
     if (!record) return;
     try {
+      await printPdf(`/vendor-bills/${record.id}/pdf`);
+    } catch (error) {
+      toast.error(errorMessage(error, 'Could not open the print dialog'));
+    }
+  };
+
+  const download = async () => {
+    if (!record) return;
+    try {
       await downloadFile(`/vendor-bills/${record.id}/pdf`, `${record.number.replace(/\//g, '-')}.pdf`);
     } catch (error) {
       toast.error(errorMessage(error, 'Could not download the PDF'));
@@ -235,6 +244,11 @@ export function VendorBillFormPage() {
           {record ? (
             <button type="button" className="btn-secondary" onClick={() => void print()}>
               Print
+            </button>
+          ) : null}
+          {record ? (
+            <button type="button" className="btn-secondary" onClick={() => void download()}>
+              Download
             </button>
           ) : null}
           {record ? (

@@ -63,7 +63,7 @@ export interface ListParams {
   sortDir?: 'asc' | 'desc';
 }
 
-/** Download a file the API streams back (PDF print buttons). */
+/** Save a PDF the API streams back to the user's downloads folder. */
 export async function downloadFile(url: string, filename: string): Promise<void> {
   const response = await api.get(url, { responseType: 'blob' });
   const href = URL.createObjectURL(response.data as Blob);
@@ -74,6 +74,66 @@ export async function downloadFile(url: string, filename: string): Promise<void>
   link.click();
   link.remove();
   URL.revokeObjectURL(href);
+}
+
+/**
+ * Open the browser print dialog on a PDF the API streams back.
+ *
+ * The document is loaded into an offscreen iframe so printing happens in
+ * place, without saving a file or leaving the page. If the iframe cannot be
+ * printed (some browsers refuse to print an embedded PDF) the document is
+ * opened in a new tab instead, so the user still has a way to print it.
+ */
+export async function printPdf(url: string): Promise<void> {
+  const response = await api.get(url, { responseType: 'blob' });
+  const blob = new Blob([response.data as Blob], { type: 'application/pdf' });
+  const href = URL.createObjectURL(blob);
+
+  const frame = document.createElement('iframe');
+  frame.style.position = 'fixed';
+  frame.style.right = '0';
+  frame.style.bottom = '0';
+  frame.style.width = '1px';
+  frame.style.height = '1px';
+  frame.style.opacity = '0';
+  frame.style.border = '0';
+  frame.src = href;
+
+  let settled = false;
+
+  const cleanup = () => {
+    // The print dialog reads from the frame, so it is only torn down later.
+    window.setTimeout(() => {
+      frame.remove();
+      URL.revokeObjectURL(href);
+    }, 60_000);
+  };
+
+  const fallback = () => {
+    if (settled) return;
+    settled = true;
+    window.open(href, '_blank', 'noopener');
+    cleanup();
+  };
+
+  frame.onload = () => {
+    if (settled) return;
+    settled = true;
+    try {
+      frame.contentWindow?.focus();
+      frame.contentWindow?.print();
+      cleanup();
+    } catch {
+      settled = false;
+      fallback();
+    }
+  };
+
+  frame.onerror = fallback;
+  // If the viewer never loads, fall back to a tab rather than doing nothing.
+  window.setTimeout(fallback, 5000);
+
+  document.body.appendChild(frame);
 }
 
 /** Upload a profile or product image and return its public URL. */

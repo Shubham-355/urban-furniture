@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { downloadFile, errorMessage } from '../../lib/api';
+import { downloadFile, errorMessage, printPdf } from '../../lib/api';
 import { useToast } from '../../app/ToastContext';
 import { Field, TextInput } from '../../components/ui';
 
@@ -46,16 +46,28 @@ export function ReportShell({
 }) {
   const navigate = useNavigate();
   const toast = useToast();
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<'print' | 'download' | null>(null);
 
+  // Print opens the browser print dialog; Download saves the same PDF.
   const print = async () => {
-    setBusy(true);
+    setBusy('print');
+    try {
+      await printPdf(pdfUrl);
+    } catch (error) {
+      toast.error(errorMessage(error, 'Could not open the print dialog'));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const download = async () => {
+    setBusy('download');
     try {
       await downloadFile(pdfUrl, pdfName);
     } catch (error) {
       toast.error(errorMessage(error, 'Could not download the PDF'));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   };
 
@@ -68,8 +80,21 @@ export function ReportShell({
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {extraActions}
-          <button type="button" className="btn-primary" disabled={busy} onClick={() => void print()}>
-            {busy ? 'Preparing...' : 'Print'}
+          <button
+            type="button"
+            className="btn-primary"
+            disabled={busy !== null}
+            onClick={() => void print()}
+          >
+            {busy === 'print' ? 'Preparing...' : 'Print'}
+          </button>
+          <button
+            type="button"
+            className="btn-secondary"
+            disabled={busy !== null}
+            onClick={() => void download()}
+          >
+            {busy === 'download' ? 'Preparing...' : 'Download'}
           </button>
           <button type="button" className="btn-secondary" onClick={() => navigate(-1)}>
             Back

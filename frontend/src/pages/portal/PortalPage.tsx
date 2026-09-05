@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { api, downloadFile, errorMessage } from '../../lib/api';
+import { api, downloadFile, errorMessage, printPdf } from '../../lib/api';
 import type { PortalDocument, PortalDocuments, PaymentVia } from '../../lib/types';
 import { formatDate, formatMoney, today } from '../../lib/format';
 import { useAuth } from '../../app/AuthContext';
@@ -91,6 +91,14 @@ export function PortalPage() {
     }
   };
 
+  const print = async (kind: 'INVOICE' | 'BILL', document: PortalDocument) => {
+    try {
+      await printPdf(`/portal/documents/${kind.toLowerCase()}/${document.id}/pdf`);
+    } catch (error) {
+      toast.error(errorMessage(error, 'Could not open the print dialog'));
+    }
+  };
+
   const table = (title: string, kind: 'INVOICE' | 'BILL', documents: PortalDocument[]) => (
     <div className="card overflow-hidden">
       <div className="border-b border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-bold uppercase tracking-wide text-slate-600">
@@ -109,7 +117,7 @@ export function PortalPage() {
                 <th className="text-right">Total</th>
                 <th className="text-right">Amount Due</th>
                 <th>Status</th>
-                <th className="w-52" />
+                <th className="w-72" />
               </tr>
             </thead>
             <tbody>
@@ -128,9 +136,16 @@ export function PortalPage() {
                       <button
                         type="button"
                         className="btn-secondary px-2.5 py-1.5"
+                        onClick={() => void print(kind, document)}
+                      >
+                        Print
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-secondary px-2.5 py-1.5"
                         onClick={() => void download(kind, document)}
                       >
-                        PDF
+                        Download
                       </button>
                       {document.amountDue > 0 ? (
                         <button
