@@ -1,0 +1,229 @@
+import { Router } from 'express';
+import { z } from 'zod';
+import { prisma } from '../lib/prisma';
+import { badRequest, notFound } from '../lib/errors';
+import {
+  dateSchema,
+  listQuerySchema,
+  listResponse,
+  moneySchema,
+  paginate,
+  serialize,
+} from '../lib/http';
+import { nextNumber } from '../lib/sequence';
+import { checkBalance } from '../domain/journal';
+import { asyncHandler } from '../middleware/error';
+import { requireAuth, requireBackOffice } from '../middleware/auth';
+
+export const journalEntriesRouter = Router();
+
+journalEntriesRouter.use(requireAuth, requireBackOffice);
+
+const lineSchema = z.object({
+  accountId: z.coerce.number().int().positive('Choose an account'),
+  partnerId: z.coerce.number().int().positive().optional().nullable(),
+  label: z.string().trim().max(200).optional().nullable(),
+  debit: moneySchema.min(0).default(0),
+  credit: moneySchema.min(0).default(0),
+});
+
+const entrySchema = z.object({
+  date: dateSchema,
+  journalId: z.coerce.number().int().positive('Choose a journal'),
+  reference: z.string().trim().max(120).optional().nullable(),
+  partnerId: z.coerce.number().int().positive().optional().nullable(),
+  lines: z.array(lineSchema).min(1, 'Add at least one line'),
+});
+
+const INCLUDE = {
+  journal: { select: { id: true, name: true, type: true } },
+  partner: { select: { id: true, name: true } },
+  items: {
+    include: {
+      account: { select: { id: true, name: true, type: true } },
+      partner: { select: { id: true, name: true } },
+    },
+    orderBy: { id: 'asc' as const },
+  },
+} as const;
+
+/** Attach the debit/credit totals every list row and form shows. */
+function withTotals<T extends { items: { debit: unknown; credit: unknown }[] }>(entry: T) {
+  const balance = checkBalance(
+    entry.items.map((item) => ({ debit: item.debit as never, credit: item.credit as never })),
+  );
+  return { ...entry, totalDebit: balance.totalDebit, totalCredit: balance.totalCredit, total: balance.totalDebit, balanced: balance.balanced };
+}
+
+journalEntriesRouter.get(
+  '/',
+  asyncHandler(async (req, res) => {
+    const query = listQuerySchema.parse(req.query);
+    const where = {
+      ...(query.archived === 'all' ? {} : { isArchived: query.archived === 'true' }),
+      ...(query.status ? { status: query.status as 'DRAFT' | 'POSTED' | 'CANCELLED' } : {}),
+      ...(query.search
+        ? {
+            OR: [
+              { number: { contains: query.search, mode: 'insensitive' as const } },
+              { reference: { contains: query.search, mode: 'insensitive' as const } },
+              { partner: { name: { contains: query.search, mode: 'insensitive' as const } } },
+              { journal: { name: { contains: query.search, mode: 'insensitive' as const } } },
+            ],
+          }
+        : {}),
+    };
+
+    const [items, total] = await Promise.all([
+      prisma.journalEntry.findMany({
+        where,
+        include: INCLUDE,
+        orderBy: [{ date: 'desc' }, { id: 'desc' }],
+        ...paginate(query),
+      }),
+      prisma.journalEntry.count({ where }),
+    ]);
+
+    res.json(listResponse(items.map(withTotals), total, query));
+  }),
+);
+
+journalEntriesRouter.get(
+  '/:id',
+  asyncHandler(async (req, res) => {
+    const entry = await prisma.journalEntry.findUnique({
+      where: { id: Number(req.params.id) },
+      include: INCLUDE,
+    });
+    if (!entry) throw notFound('Journal entry not found');
+    res.json(serialize(withTotals(entry)));
+  }),
+);
+
+/** Manual entries only - system generated entries are created by their document. */
+journalEntriesRouter.post(
+  '/',
+  asyncHandler(async (req, res) => {
+    const input = entrySchema.parse(req.body);
+
+    const entry = await prisma.$transaction(async (tx) => {
+      const number = await nextNumber(tx, 'JOURNAL_ENTRY', input.date);
+      const created = await tx.journalEntry.create({
+        data: {
+          number,
+          date: input.date,
+          journalId: input.journalId,
+          reference: input.reference ?? null,
+          partnerId: input.partnerId ?? null,
+          status: 'DRAFT',
+          sourceType: 'MANUAL',
+          items: {
+            create: input.lines.map((line) => ({
+              accountId: line.accountId,
+              partnerId: line.partnerId ?? null,
+              label: line.label ?? null,
+              debit: line.debit,
+              credit: line.credit,
+            })),
+          },
+        },
+        include: INCLUDE,
+      });
+      return created;
+    });
+
+    res.status(201).json(serialize(withTotals(entry)));
+  }),
+);
+
+journalEntriesRouter.put(
+  '/:id',
+  asyncHandler(async (req, res) => {
+    const id = Number(req.params.id);
+    const input = entrySchema.parse(req.body);
+
+    const existing = await prisma.journalEntry.findUnique({ where: { id } });
+    if (!existing) throw notFound('Journal entry not found');
+    if (existing.sourceType !== 'MANUAL') {
+      throw badRequest('This entry was generated by a document and can only be viewed');
+    }
+    if (existing.status !== 'DRAFT') {
+      throw badRequest('Only draft journal entries can be edited');
+    }
+
+    const entry = await prisma.$transaction(async (tx) => {
+      await tx.journalItem.deleteMany({ where: { entryId: id } });
+      return tx.journalEntry.update({
+        where: { id },
+        data: {
+          date: input.date,
+          journalId: input.journalId,
+          reference: input.reference ?? null,
+          partnerId: input.partnerId ?? null,
+          items: {
+            create: input.lines.map((line) => ({
+              accountId: line.accountId,
+              partnerId: line.partnerId ?? null,
+              label: line.label ?? null,
+              debit: line.debit,
+              credit: line.credit,
+            })),
+          },
+        },
+        include: INCLUDE,
+      });
+    });
+
+    res.json(serialize(withTotals(entry)));
+  }),
+);
+
+/**
+ * Posting is blocked unless the debit and credit columns match - the same rule
+ * the form shows as a warning banner.
+ */
+journalEntriesRouter.post(
+  '/:id/post',
+  asyncHandler(async (req, res) => {
+    const id = Number(req.params.id);
+    const entry = await prisma.journalEntry.findUnique({ where: { id }, include: { items: true } });
+    if (!entry) throw notFound('Journal entry not found');
+    if (entry.status === 'POSTED') throw badRequest('This entry is already posted');
+    if (entry.status === 'CANCELLED') throw badRequest('A cancelled entry cannot be posted');
+
+    const balance = checkBalance(entry.items);
+    if (!balance.balanced) {
+      throw badRequest(
+        `Total debit (${balance.totalDebit.toFixed(2)}) must equal total credit (${balance.totalCredit.toFixed(2)}) before posting`,
+      );
+    }
+
+    const posted = await prisma.journalEntry.update({
+      where: { id },
+      data: { status: 'POSTED' },
+      include: INCLUDE,
+    });
+    res.json(serialize(withTotals(posted)));
+  }),
+);
+
+journalEntriesRouter.post(
+  '/:id/cancel',
+  asyncHandler(async (req, res) => {
+    const id = Number(req.params.id);
+    const entry = await prisma.journalEntry.findUnique({ where: { id } });
+    if (!entry) throw notFound('Journal entry not found');
+    if (entry.sourceType && entry.sourceType !== 'MANUAL') {
+      throw badRequest(
+        'Cancel the source document instead - this entry belongs to a bill, invoice or payment',
+      );
+    }
+
+    const cancelled = await prisma.journalEntry.update({
+      where: { id },
+      data: { status: 'CANCELLED' },
+      include: INCLUDE,
+    });
+    res.json(serialize(withTotals(cancelled)));
+  }),
+);
