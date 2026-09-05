@@ -15,6 +15,7 @@ import { assertContact } from './contacts';
 import { assertAnalyticType } from './budgets';
 import {
   cancelEntriesForSource,
+  draftEntriesForSource,
   journalIdByType,
   postEntry,
   systemAccountId,
@@ -257,10 +258,12 @@ vendorBillsRouter.post(
         throw badRequest('Payments have been recorded against this bill, so it cannot be reset');
       }
 
-      await cancelEntriesForSource(tx, 'VENDOR_BILL', id);
+      // The entry follows the bill back to draft and is rewritten on the next
+      // confirm, so the bill keeps one journal entry for its whole life.
+      await draftEntriesForSource(tx, 'VENDOR_BILL', id);
       return tx.vendorBill.update({
         where: { id },
-        data: { status: 'DRAFT', journalEntryId: null },
+        data: { status: 'DRAFT' },
         include: INCLUDE,
       });
     });

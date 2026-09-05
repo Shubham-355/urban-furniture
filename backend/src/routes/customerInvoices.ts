@@ -15,6 +15,7 @@ import { assertContact } from './contacts';
 import { assertAnalyticType } from './budgets';
 import {
   cancelEntriesForSource,
+  draftEntriesForSource,
   journalIdByType,
   postEntry,
   systemAccountId,
@@ -280,10 +281,12 @@ customerInvoicesRouter.post(
         throw badRequest('Payments have been received against this invoice, so it cannot be reset');
       }
 
-      await cancelEntriesForSource(tx, 'CUSTOMER_INVOICE', id);
+      // The entry follows the invoice back to draft and is rewritten on the
+      // next confirm, so the invoice keeps one journal entry for its whole life.
+      await draftEntriesForSource(tx, 'CUSTOMER_INVOICE', id);
       return tx.customerInvoice.update({
         where: { id },
-        data: { status: 'DRAFT', journalEntryId: null },
+        data: { status: 'DRAFT' },
         include: INVOICE_INCLUDE,
       });
     });

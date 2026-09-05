@@ -70,7 +70,14 @@ export interface PostEntryInput {
   number?: string;
 }
 
-/** Create a posted, balanced journal entry. */
+/**
+ * Post a balanced journal entry for a document.
+ *
+ * A document owns exactly one entry for its whole life. Confirming it for the
+ * first time creates that entry; confirming again after a Reset to Draft
+ * rewrites the same entry's lines and re-posts it, so the document keeps one
+ * number instead of colliding with the entry it created the first time round.
+ */
 export async function postEntry(tx: Tx, input: PostEntryInput) {
   const balance = checkBalance(input.items);
   if (!balance.balanced) {
@@ -80,6 +87,38 @@ export async function postEntry(tx: Tx, input: PostEntryInput) {
   }
   if (input.items.length === 0) {
     throw badRequest('A journal entry needs at least one line');
+  }
+
+  const lines = input.items.map((item) => ({
+    accountId: item.accountId,
+    partnerId: item.partnerId ?? null,
+    label: item.label ?? null,
+    debit: item.debit,
+    credit: item.credit,
+  }));
+
+  const existing = input.sourceId
+    ? await tx.journalEntry.findFirst({
+        where: { sourceType: input.sourceType, sourceId: input.sourceId },
+        orderBy: { id: 'asc' },
+      })
+    : null;
+
+  if (existing) {
+    await tx.journalItem.deleteMany({ where: { entryId: existing.id } });
+    return tx.journalEntry.update({
+      where: { id: existing.id },
+      data: {
+        // The number is deliberately left alone: it belongs to the document.
+        date: input.date,
+        journalId: input.journalId,
+        reference: input.reference ?? null,
+        partnerId: input.partnerId ?? null,
+        status: 'POSTED',
+        items: { create: lines },
+      },
+      include: { items: true },
+    });
   }
 
   const number = input.number ?? (await nextNumber(tx, 'JOURNAL_ENTRY', input.date));
@@ -94,24 +133,15 @@ export async function postEntry(tx: Tx, input: PostEntryInput) {
       status: 'POSTED',
       sourceType: input.sourceType,
       sourceId: input.sourceId ?? null,
-      items: {
-        create: input.items.map((item) => ({
-          accountId: item.accountId,
-          partnerId: item.partnerId ?? null,
-          label: item.label ?? null,
-          debit: item.debit,
-          credit: item.credit,
-        })),
-      },
+      items: { create: lines },
     },
     include: { items: true },
   });
 }
 
 /**
- * Reversing a document (Reset to Draft / Cancel) cancels its entry rather than
- * deleting it, so the audit trail survives. A cancelled entry is excluded from
- * every report.
+ * Reversing a document never deletes its entry, so the audit trail survives.
+ * Neither a draft nor a cancelled entry reaches the reports.
  */
 export async function cancelEntry(tx: Tx, entryId: number | null | undefined): Promise<void> {
   if (!entryId) return;
@@ -125,7 +155,22 @@ export async function cancelEntriesForSource(
   sourceId: number,
 ): Promise<void> {
   await tx.journalEntry.updateMany({
-    where: { sourceType, sourceId, status: 'POSTED' },
+    where: { sourceType, sourceId, status: { not: 'CANCELLED' } },
     data: { status: 'CANCELLED' },
+  });
+}
+
+/**
+ * Reset to Draft: the entry goes back to draft alongside its document, ready
+ * to be rewritten when the document is confirmed again.
+ */
+export async function draftEntriesForSource(
+  tx: Tx,
+  sourceType: PostEntryInput['sourceType'],
+  sourceId: number,
+): Promise<void> {
+  await tx.journalEntry.updateMany({
+    where: { sourceType, sourceId, status: 'POSTED' },
+    data: { status: 'DRAFT' },
   });
 }

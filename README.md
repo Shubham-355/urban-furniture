@@ -128,8 +128,11 @@ Every posting runs inside a Prisma `$transaction`, so a document can never end u
 without its entry — or the other way round. A manual entry cannot be posted while debit and
 credit differ; the form shows a blocking banner and disables **Post**.
 
-Confirmed documents are immutable. **Reset to Draft** cancels the generated entry (it stays in
-the history, marked Cancelled, and is excluded from every report) and reopens the document.
+Confirmed documents are immutable. **Reset to Draft** sends the entry back to draft alongside its
+document, so it drops out of every report while you edit; confirming again rewrites that same
+entry's lines and re-posts it. A document therefore owns exactly one journal entry, carrying one
+number, for its whole life — no matter how many times it is reset and re-confirmed. **Cancel**
+marks the entry Cancelled instead, and it stays in the history for the audit trail.
 
 ### Pre-configured on seed
 
@@ -237,6 +240,9 @@ checkout.
 - **Journal entry numbering.** The spec shows `JE/2026/0001` as the sequence but lists
   `Bill/2026/0001` as an entry number. System-generated entries therefore carry the number of the
   document that produced them, and manual entries take the `JE/…` sequence — both examples hold.
+- **One entry per document.** Because a system entry is numbered after the document that made it,
+  re-confirming after a Reset to Draft rewrites the existing entry rather than creating a second
+  one — two entries would otherwise fight over the same number.
 - **Retained earnings.** The balance sheet is cumulative to the end of the period rather than
   period-only, so Assets = Liabilities + Capital holds exactly rather than approximately.
 - **Budget achievement uses untaxed line amounts**, so an income budget lines up with the Sales
