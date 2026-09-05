@@ -25,7 +25,6 @@ export interface MailInput {
 export interface MailResult {
   delivered: boolean;
   messageId?: string;
-  previewUrl?: string;
   reason?: string;
 }
 
@@ -46,19 +45,36 @@ export async function sendMail(input: MailInput): Promise<MailResult> {
     };
   }
 
-  const info = await getTransporter().sendMail({
-    from: env.smtp.from,
-    to: input.to,
-    subject: input.subject,
-    text: input.text,
-    html: input.html,
-    attachments: input.attachments,
-  });
+  try {
+    const info = await getTransporter().sendMail({
+      from: env.smtp.from,
+      to: input.to,
+      subject: input.subject,
+      text: input.text,
+      html: input.html,
+      attachments: input.attachments,
+    });
 
-  const previewUrl = nodemailer.getTestMessageUrl(info);
-  return {
-    delivered: true,
-    messageId: info.messageId,
-    previewUrl: previewUrl === false ? undefined : previewUrl,
-  };
+    return { delivered: true, messageId: info.messageId };
+  } catch (error) {
+    // A mail server being unreachable or refusing the login must not take the
+    // whole request down with it: the account, invoice or reset still stands,
+    // and the caller reports plainly that the message did not go out.
+    console.error('[mail] send failed:', error instanceof Error ? error.message : error);
+    return { delivered: false, reason: describeMailFailure(error) };
+  }
+}
+
+/** Turn an SMTP failure into something the person reading the toast can act on. */
+function describeMailFailure(error: unknown): string {
+  const code = (error as { code?: string } | null)?.code;
+  const message = error instanceof Error ? error.message : String(error);
+
+  if (code === 'EAUTH') {
+    return `The mail server rejected the SMTP_USER and SMTP_PASS in .env (${message}).`;
+  }
+  if (code === 'ECONNECTION' || code === 'ESOCKET' || code === 'ETIMEDOUT' || code === 'EDNS') {
+    return `Could not reach the mail server ${env.smtp.host}:${env.smtp.port} (${message}).`;
+  }
+  return `The email could not be sent (${message}).`;
 }

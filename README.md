@@ -48,11 +48,15 @@ run Postgres, skip this and point `DATABASE_URL` at your own instance.
 
 ```bash
 cp .env.example .env
-cp .env.example backend/.env
+printf 'DATABASE_URL=%s
+' "$(grep '^DATABASE_URL=' .env | cut -d= -f2-)" > backend/.env
 ```
 
-The defaults work against the compose database. Fill in `SMTP_USER` / `SMTP_PASS` (Ethereal or
-Mailtrap) if you want the **Send** buttons to deliver real mail — see [Email](#email) below.
+Everything lives in the root `.env`. `backend/.env` holds only `DATABASE_URL`, because the Prisma
+CLI does not read the root file.
+
+The defaults work against the compose database. Fill in `SMTP_USER` / `SMTP_PASS` if you want the
+**Send** buttons to deliver real mail — see [Email](#email) below.
 
 ### 3. Install, migrate, seed
 
@@ -202,11 +206,24 @@ example, across a full purchase-and-sales cycle, and on an empty ledger.
 
 ## Email
 
-Both **Send** buttons attach the server-rendered PDF. Without `SMTP_USER` / `SMTP_PASS` the
-message is logged instead of sent and the UI says so plainly rather than reporting a false
-success. Forgot Password behaves the same way: with SMTP configured it emails a time-limited
-reset link, and without it the link is returned to the page so the flow stays usable in a fresh
-checkout.
+Mail goes out over SMTP with nodemailer, configured entirely through the `SMTP_*` variables in
+the root `.env` — no code changes are needed to move between providers. For Gmail, switch 2FA on
+and use a 16 character App Password with the spaces removed, and set `MAIL_FROM` to the same
+address, since Gmail rejects a From it does not own.
+
+Three flows send mail: **Send** on an invoice or bill (with the PDF attached), **Create User** and
+the contact form's portal login (which mail the person their sign in details), and **Forgot
+Password** (a time-limited reset link).
+
+Nothing here fails silently. With `SMTP_USER` / `SMTP_PASS` left blank the message is logged and
+the UI says the mail was not sent; if the server refuses the login or cannot be reached, the
+account, invoice or reset still succeeds and the reason comes back in plain words. Forgot Password
+additionally returns the reset link to the page when mail is unavailable, so the flow stays usable
+in a fresh checkout.
+
+Note that `backend/.env` carries only `DATABASE_URL`, because the Prisma CLI does not read the
+root `.env`. Everything else belongs in the root file. A variable written with an empty value is
+treated as unset, so a blank line in one file can never mask a real value in the other.
 
 ---
 

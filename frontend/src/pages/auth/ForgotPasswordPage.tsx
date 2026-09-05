@@ -39,7 +39,7 @@ export function ForgotPasswordPage() {
         <p className="text-sm text-slate-600">{sent.message}</p>
         {sent.resetLink ? (
           <div className="mt-4 rounded-md border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900">
-            <p className="font-semibold">SMTP is not configured in this environment.</p>
+            <p className="font-semibold">The email could not be sent.</p>
             {sent.note ? <p className="mt-1 text-xs">{sent.note}</p> : null}
             <a href={sent.resetLink} className="mt-2 block break-all font-semibold underline">
               {sent.resetLink}

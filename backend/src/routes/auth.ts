@@ -146,9 +146,9 @@ authRouter.post(
 
     res.json({
       ...response,
-      // Without SMTP configured the link is returned so the flow stays usable
-      // in a development checkout.
-      ...(mail.delivered ? { previewUrl: mail.previewUrl } : { resetLink: link, note: mail.reason }),
+      // When the mail could not go out the link is returned instead, so the
+      // flow stays usable in a development checkout.
+      ...(mail.delivered ? {} : { resetLink: link, note: mail.reason }),
     });
   }),
 );
