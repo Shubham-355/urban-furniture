@@ -208,7 +208,11 @@ async function budgetRows(query: unknown) {
   const budgets = await prisma.budget.findMany({
     where: {
       isArchived: false,
-      ...(list.status ? { status: list.status as never } : {}),
+      // A cancelled budget is not being pursued, so it stays out of the report
+      // unless it is asked for by name.
+      ...(list.status
+        ? { status: list.status as never }
+        : { status: { not: 'CANCELLED' as const } }),
       ...(list.search ? { name: { contains: list.search, mode: 'insensitive' as const } } : {}),
     },
     include: BUDGET_INCLUDE,
