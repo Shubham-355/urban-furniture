@@ -6,6 +6,7 @@ import { asyncHandler } from '../middleware/error';
 import { requireAdmin, requireAuth } from '../middleware/auth';
 import { createUserSchema } from '../validation/auth';
 import { assertCredentialsAvailable, hashPassword } from './auth';
+import { ROLE_LABELS, sendCredentialsEmail } from '../services/userMail';
 
 export const usersRouter = Router();
 
@@ -80,7 +81,11 @@ usersRouter.post(
       const contact = await prisma.contact.findUnique({ where: { id: input.contactId } });
       if (!contact) throw badRequest('The selected contact does not exist');
       const taken = await prisma.user.findUnique({ where: { contactId: input.contactId } });
-      if (taken) throw badRequest('This contact already has a portal user');
+      if (taken) {
+        throw badRequest(
+          `${contact.name} already signs in as "${taken.loginId}". A contact can only have one portal login.`,
+        );
+      }
     }
 
     const user = await prisma.user.create({
@@ -95,7 +100,16 @@ usersRouter.post(
       select: SELECT,
     });
 
-    res.status(201).json(serialize(user));
+    // The administrator picks the password, so the new user is told what it is.
+    const mail = await sendCredentialsEmail({
+      name: user.name,
+      email: user.email,
+      loginId: user.loginId,
+      password: input.password,
+      roleLabel: ROLE_LABELS[user.role] ?? 'a user',
+    });
+
+    res.status(201).json(serialize({ ...user, mail }));
   }),
 );
 

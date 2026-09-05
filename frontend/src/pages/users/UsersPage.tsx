@@ -116,8 +116,17 @@ export function CreateUserPage() {
     setErrors({});
     setBusy(true);
     try {
-      await api.post('/users', form);
+      const { data } = await api.post<{ mail?: { delivered: boolean; reason?: string } }>(
+        '/users',
+        form,
+      );
       toast.success(`${form.name} can now sign in as ${titleCase(form.role)}`);
+      // The credentials mail is best effort: say plainly when it did not go out.
+      if (data.mail?.delivered) {
+        toast.info(`Sign in details emailed to ${form.email}`);
+      } else if (data.mail) {
+        toast.info(`Account created, but no email was sent. ${data.mail.reason ?? ''}`.trim());
+      }
       navigate('/users');
     } catch (error) {
       setErrors({ form: errorMessage(error, 'Could not create the user') });
@@ -131,13 +140,20 @@ export function CreateUserPage() {
       title="Create User"
       subtitle="Only an administrator can create users."
       backTo="/users"
-      onConfirm={() => void submit()}
-      confirmLabel="Create"
-      confirmDisabled={busy}
       actions={
-        <button type="button" className="btn-secondary" onClick={() => navigate('/users')}>
-          Cancel
-        </button>
+        <>
+          <button
+            type="button"
+            className="btn-primary"
+            disabled={busy}
+            onClick={() => void submit()}
+          >
+            {busy ? 'Creating...' : 'Create'}
+          </button>
+          <button type="button" className="btn-secondary" onClick={() => navigate('/users')}>
+            Cancel
+          </button>
+        </>
       }
     >
       {errors.form ? (
@@ -227,9 +243,11 @@ export function CreateUserPage() {
           <Field label="Contact" error={errors.contactId}>
             <RecordPicker<Contact>
               endpoint="/contacts"
+              params={{ portal: 'none' }}
               value={form.contactId}
               onChange={(contactId) => setForm({ ...form, contactId })}
               placeholder="Which contact is this login for?"
+              emptyLabel="Every contact already has a portal login"
               error={Boolean(errors.contactId)}
             />
           </Field>

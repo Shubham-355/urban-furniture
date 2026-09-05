@@ -95,13 +95,22 @@ export function ContactFormPage() {
     };
 
     try {
+      type Saved = Contact & { mail?: { delivered: boolean; reason?: string } };
+      const announceMail = (mail?: { delivered: boolean; reason?: string }) => {
+        if (!mail) return;
+        if (mail.delivered) toast.info(`Sign in details emailed to ${payload.email}`);
+        else toast.info(`Portal login created, but no email was sent. ${mail.reason ?? ''}`.trim());
+      };
+
       if (record) {
-        await api.put(`/contacts/${record.id}`, payload);
+        const { data } = await api.put<Saved>(`/contacts/${record.id}`, payload);
         toast.success('Contact saved');
+        announceMail(data.mail);
         await reload();
       } else {
-        const { data } = await api.post<Contact>('/contacts', payload);
+        const { data } = await api.post<Saved>('/contacts', payload);
         toast.success('Contact created');
+        announceMail(data.mail);
         navigate(`/account/contacts/${data.id}`, { replace: true });
       }
     } catch (error) {

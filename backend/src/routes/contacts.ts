@@ -14,6 +14,7 @@ import { asyncHandler } from '../middleware/error';
 import { requireAdmin, requireAuth, requireBackOffice } from '../middleware/auth';
 import { contactSchema } from '../validation/masters';
 import { assertCredentialsAvailable, hashPassword } from './auth';
+import { ROLE_LABELS, sendCredentialsEmail } from '../services/userMail';
 
 export const contactsRouter = Router();
 
@@ -39,8 +40,12 @@ contactsRouter.get(
   '/',
   asyncHandler(async (req, res) => {
     const query = listQuerySchema.parse(req.query);
+    // `portal=none` powers the Create User picker: a contact can only ever have
+    // one portal login, so the ones that already have it are not offered.
+    const portal = String(req.query.portal ?? '');
     const where = {
       ...archivedFilter(query),
+      ...(portal === 'none' ? { portalUser: { is: null } } : {}),
       // `status` doubles as the Customer / Vendor filter used by the pickers.
       ...(query.status === 'CUSTOMER'
         ? { type: { in: ['CUSTOMER', 'BOTH'] as ContactType[] } }
@@ -115,7 +120,17 @@ contactsRouter.post(
       return tx.contact.findUniqueOrThrow({ where: { id: created.id }, select: SELECT });
     });
 
-    res.status(201).json(serialize(contact));
+    const mail = portalUser
+      ? await sendCredentialsEmail({
+          name: contact.name,
+          email: contact.email,
+          loginId: portalUser.loginId,
+          password: portalUser.password,
+          roleLabel: ROLE_LABELS.CONTACT,
+        })
+      : undefined;
+
+    res.status(201).json(serialize({ ...contact, mail }));
   }),
 );
 
@@ -136,8 +151,20 @@ contactsRouter.put(
       await assertCredentialsAvailable(portalUser.loginId, data.email);
     }
 
+    // Renaming a contact or changing its email has to follow through to the
+    // portal login, otherwise that user signs in against a stale address and
+    // password resets go to the wrong mailbox.
+    if (existing.portalUser && existing.portalUser.email !== data.email) {
+      await assertCredentialsAvailable(
+        existing.portalUser.loginId,
+        data.email,
+        existing.portalUser.id,
+      );
+    }
+
     const contact = await prisma.$transaction(async (tx) => {
       await tx.contact.update({ where: { id }, data });
+
       if (portalUser && !existing.portalUser) {
         await tx.user.create({
           data: {
@@ -149,11 +176,28 @@ contactsRouter.put(
             contactId: id,
           },
         });
+      } else if (existing.portalUser) {
+        await tx.user.update({
+          where: { id: existing.portalUser.id },
+          data: { name: data.name, email: data.email },
+        });
       }
+
       return tx.contact.findUniqueOrThrow({ where: { id }, select: SELECT });
     });
 
-    res.json(serialize(contact));
+    const mail =
+      portalUser && !existing.portalUser
+        ? await sendCredentialsEmail({
+            name: contact.name,
+            email: contact.email,
+            loginId: portalUser.loginId,
+            password: portalUser.password,
+            roleLabel: ROLE_LABELS.CONTACT,
+          })
+        : undefined;
+
+    res.json(serialize({ ...contact, mail }));
   }),
 );
 
